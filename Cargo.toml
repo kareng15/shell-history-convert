@@ -1,0 +1,10 @@
+[package]
+name = "histconv"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Convert shell history between zsh extended history and bash history formats"
+
+[[bin]]
+name = "histconv"
+path = "src/main.rs"
