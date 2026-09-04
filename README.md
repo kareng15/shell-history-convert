@@ -55,9 +55,11 @@ cargo build --release
 
 ## Status
 
-Early. Multi-line commands (zsh's backslash-continuation for commands
-containing embedded newlines) aren't reassembled yet — each physical line is
-treated as its own entry. See the issues for what's planned next.
+Early. zsh's backslash-continuation for commands containing embedded
+newlines is reassembled on read and re-emitted on write, so a multi-line
+command survives a round trip through either format. Fish history isn't
+supported yet, and there's no way to convert a file in place. See the
+issues for what's planned next.
 
 ## License
 
