@@ -120,6 +120,104 @@ pub fn parse_bash(input: &str) -> Vec<Entry> {
     entries
 }
 
+/// Parses fish history: a `- cmd: <command>` / `  when: <epoch>` pair per
+/// entry, optionally followed by a `  paths:` block listing files fish
+/// noticed in the command. We don't carry paths through the conversion, so
+/// that block is just skipped.
+///
+/// This isn't a general YAML parser. Fish writes history with its own
+/// escaping (backslash and newline only, both on a single line) rather than
+/// full YAML quoting, so a line-oriented parser matching that escaping is
+/// enough to round-trip real fish history files.
+pub fn parse_fish(input: &str) -> Vec<Entry> {
+    let lines: Vec<&str> = input.lines().collect();
+    let mut entries = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let Some(cmd_part) = line.strip_prefix("- cmd: ") else {
+            i += 1;
+            continue;
+        };
+        let command = unescape_fish_command(cmd_part);
+        i += 1;
+
+        let mut timestamp = None;
+        if let Some(rest) = lines.get(i).and_then(|l| l.strip_prefix("  when: ")) {
+            if let Ok(ts) = rest.trim().parse() {
+                timestamp = Some(ts);
+                i += 1;
+            }
+        }
+
+        while lines
+            .get(i)
+            .is_some_and(|l| l.starts_with("  paths:") || l.starts_with("    - "))
+        {
+            i += 1;
+        }
+
+        entries.push(Entry {
+            timestamp,
+            duration: None,
+            command,
+        });
+    }
+    entries
+}
+
+/// Collapses fish's escaping: `\n` back to a real newline, `\\` back to a
+/// literal backslash.
+fn unescape_fish_command(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.peek() {
+            Some('n') => {
+                out.push('\n');
+                chars.next();
+            }
+            Some('\\') => {
+                out.push('\\');
+                chars.next();
+            }
+            _ => out.push('\\'),
+        }
+    }
+    out
+}
+
+/// Reverses `unescape_fish_command`: a literal backslash becomes `\\` and an
+/// embedded newline becomes `\n`, keeping the whole command on one line the
+/// way fish itself writes it.
+fn escape_fish_command(command: &str) -> String {
+    let mut out = String::with_capacity(command.len());
+    for ch in command.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+pub fn to_fish(entries: &[Entry]) -> String {
+    let mut out = String::new();
+    for e in entries {
+        let ts = e.timestamp.unwrap_or(0);
+        out.push_str("- cmd: ");
+        out.push_str(&escape_fish_command(&e.command));
+        out.push('\n');
+        out.push_str(&format!("  when: {}\n", ts));
+    }
+    out
+}
+
 pub fn to_zsh(entries: &[Entry]) -> String {
     let mut out = String::new();
     for e in entries {
@@ -206,5 +304,54 @@ mod tests {
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].timestamp, None);
         assert_eq!(entries[0].command, "git status");
+    }
+
+    #[test]
+    fn parses_fish_entry() {
+        let entries = parse_fish("- cmd: git status\n  when: 1693600000\n");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].command, "git status");
+        assert_eq!(entries[0].timestamp, Some(1693600000));
+        assert_eq!(entries[0].duration, None);
+    }
+
+    #[test]
+    fn parses_multiple_fish_entries_and_skips_paths_block() {
+        let input = "- cmd: git status\n  when: 1693600000\n  paths:\n    - .git\n- cmd: ls -la\n  when: 1693600010\n";
+        let entries = parse_fish(input);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].command, "git status");
+        assert_eq!(entries[1].command, "ls -la");
+        assert_eq!(entries[1].timestamp, Some(1693600010));
+    }
+
+    #[test]
+    fn fish_round_trips_multiline_and_backslash_commands() {
+        let entries = vec![
+            Entry {
+                timestamp: Some(1),
+                duration: None,
+                command: "echo foo\necho bar".to_string(),
+            },
+            Entry {
+                timestamp: Some(2),
+                duration: None,
+                command: "echo foo\\bar".to_string(),
+            },
+        ];
+        let written = to_fish(&entries);
+        let reparsed = parse_fish(&written);
+        assert_eq!(reparsed.len(), 2);
+        assert_eq!(reparsed[0].command, entries[0].command);
+        assert_eq!(reparsed[0].timestamp, entries[0].timestamp);
+        assert_eq!(reparsed[1].command, entries[1].command);
+    }
+
+    #[test]
+    fn fish_entry_without_when_still_parses_command() {
+        let entries = parse_fish("- cmd: git status\n");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].command, "git status");
+        assert_eq!(entries[0].timestamp, None);
     }
 }

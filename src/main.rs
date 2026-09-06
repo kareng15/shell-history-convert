@@ -34,8 +34,8 @@ fn parse_args() -> Result<Args, String> {
     let to = to.ok_or("missing --to <zsh|bash>")?;
 
     for fmt in [&from, &to] {
-        if fmt != "zsh" && fmt != "bash" {
-            return Err(format!("unknown format '{fmt}', expected 'zsh' or 'bash'"));
+        if fmt != "zsh" && fmt != "bash" && fmt != "fish" {
+            return Err(format!("unknown format '{fmt}', expected 'zsh', 'bash', or 'fish'"));
         }
     }
 
@@ -43,7 +43,7 @@ fn parse_args() -> Result<Args, String> {
 }
 
 fn print_usage() {
-    eprintln!("histconv --from <zsh|bash> --to <zsh|bash> [FILE]");
+    eprintln!("histconv --from <zsh|bash|fish> --to <zsh|bash|fish> [FILE]");
     eprintln!();
     eprintln!("Converts shell history between zsh extended history and bash");
     eprintln!("history formats. Reads FILE if given, otherwise reads stdin.");
@@ -82,12 +82,14 @@ fn main() -> ExitCode {
     let entries = match args.from.as_str() {
         "zsh" => formats::parse_zsh(&input),
         "bash" => formats::parse_bash(&input),
+        "fish" => formats::parse_fish(&input),
         _ => unreachable!("validated in parse_args"),
     };
 
     let output = match args.to.as_str() {
         "zsh" => formats::to_zsh(&entries),
         "bash" => formats::to_bash(&entries),
+        "fish" => formats::to_fish(&entries),
         _ => unreachable!("validated in parse_args"),
     };
 

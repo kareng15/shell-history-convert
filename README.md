@@ -16,14 +16,21 @@ or, if `HISTTIMEFORMAT` is set, a `#<epoch>` comment line ahead of it:
 git status
 ```
 
-Neither shell reads the other's format, so importing history across a
-migration means hand-editing a text file with tens of thousands of lines.
-`histconv` converts between the two.
+fish writes a YAML-ish block per command instead:
+
+```
+- cmd: git status
+  when: 1693600000
+```
+
+None of the three shells read either of the other formats, so importing
+history across a migration means hand-editing a text file with tens of
+thousands of lines. `histconv` converts between them.
 
 ## Usage
 
 ```
-histconv --from <zsh|bash> --to <zsh|bash> [FILE]
+histconv --from <zsh|bash|fish> --to <zsh|bash|fish> [FILE]
 ```
 
 If `FILE` is omitted (or is `-`), input is read from stdin. Output always
@@ -43,7 +50,15 @@ cat ~/.bash_history | histconv --from bash --to zsh > zsh_history.txt
 
 Commands with no timestamp (plain bash history, or a zsh line that didn't
 parse as extended format) come out the other side with a timestamp of `0`
-when converting to zsh, and no `#` line at all when converting to bash.
+when converting to zsh or fish, and no `#` line at all when converting to
+bash.
+
+fish's `paths:` block (files it noticed in a command, used for autocomplete
+ranking) isn't carried across formats, the same way zsh's `duration` field
+is dropped when the source wasn't zsh. The fish parser handles fish's own
+escaping of embedded newlines and backslashes in a `cmd:` value; it isn't a
+general YAML parser and won't handle a history file hand-edited into
+quoted-string form.
 
 ## Building
 
@@ -57,9 +72,8 @@ cargo build --release
 
 Early. zsh's backslash-continuation for commands containing embedded
 newlines is reassembled on read and re-emitted on write, so a multi-line
-command survives a round trip through either format. Fish history isn't
-supported yet, and there's no way to convert a file in place. See the
-issues for what's planned next.
+command survives a round trip through either format. There's no way to
+convert a file in place yet. See the issues for what's planned next.
 
 ## License
 
