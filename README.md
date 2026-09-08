@@ -60,6 +60,12 @@ escaping of embedded newlines and backslashes in a `cmd:` value; it isn't a
 general YAML parser and won't handle a history file hand-edited into
 quoted-string form.
 
+Plain bash history has no way to mark a line as a continuation of the one
+before it, so a command with an embedded newline (from a heredoc, or from
+`$'...'` quoting) gets flattened to one line with `; ` joining the pieces
+when converting to bash, the same lossy join bash's own history writer does
+by default.
+
 ## Building
 
 Standard library only, no dependencies:

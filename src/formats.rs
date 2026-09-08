@@ -234,10 +234,22 @@ pub fn to_bash(entries: &[Entry]) -> String {
         if let Some(ts) = e.timestamp {
             out.push_str(&format!("#{}\n", ts));
         }
-        out.push_str(&e.command);
+        out.push_str(&flatten_for_bash(&e.command));
         out.push('\n');
     }
     out
+}
+
+/// Plain bash history has no escaping syntax and no way to mark a line as
+/// a continuation of the previous one, so an embedded newline can't be
+/// written literally: `parse_bash` would read the second half back as an
+/// unrelated bare command. Bash's own history writer hits the same wall and
+/// resolves it by joining a multi-line command with semicolons before it
+/// ever reaches the file (that's the default `cmdhist`/`lithist` behavior),
+/// so this matches what a real `.bash_history` already looks like rather
+/// than inventing a new convention.
+fn flatten_for_bash(command: &str) -> String {
+    command.replace('\n', "; ")
 }
 
 #[cfg(test)]
@@ -345,6 +357,26 @@ mod tests {
         assert_eq!(reparsed[0].command, entries[0].command);
         assert_eq!(reparsed[0].timestamp, entries[0].timestamp);
         assert_eq!(reparsed[1].command, entries[1].command);
+    }
+
+    #[test]
+    fn to_bash_flattens_embedded_newlines() {
+        let entries = vec![Entry {
+            timestamp: Some(1693600000),
+            duration: Some(0),
+            command: "echo foo\necho bar".to_string(),
+        }];
+        assert_eq!(to_bash(&entries), "#1693600000\necho foo; echo bar\n");
+    }
+
+    #[test]
+    fn to_bash_leaves_literal_semicolons_untouched() {
+        let entries = vec![Entry {
+            timestamp: None,
+            duration: None,
+            command: "echo foo; echo bar".to_string(),
+        }];
+        assert_eq!(to_bash(&entries), "echo foo; echo bar\n");
     }
 
     #[test]
