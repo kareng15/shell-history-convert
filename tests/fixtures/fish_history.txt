@@ -1,0 +1,6 @@
+- cmd: git status
+  when: 1693600000
+- cmd: ls -la
+  when: 1693600010
+- cmd: echo hello world
+  when: 1693600020
