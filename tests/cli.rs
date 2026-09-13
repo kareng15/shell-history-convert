@@ -90,3 +90,46 @@ fn rejects_unknown_format() {
         .expect("failed to run histconv");
     assert!(!output.status.success());
 }
+
+#[test]
+fn in_place_overwrites_the_input_file() {
+    let dir = std::env::temp_dir().join(format!("histconv-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("failed to create temp dir");
+    let path = dir.join("history.txt");
+    std::fs::write(&path, fixture("zsh_history.txt")).expect("failed to seed temp file");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_histconv"))
+        .args(["--from", "zsh", "--to", "bash", "--in-place"])
+        .arg(&path)
+        .output()
+        .expect("failed to run histconv");
+    assert!(
+        output.status.success(),
+        "histconv --in-place failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stdout.is_empty(), "--in-place should not write to stdout");
+
+    let got = std::fs::read_to_string(&path).expect("failed to read converted file");
+    assert_eq!(got, fixture("bash_history.txt"));
+
+    std::fs::remove_dir_all(&dir).expect("failed to clean up temp dir");
+}
+
+#[test]
+fn in_place_without_a_file_is_rejected() {
+    let output = Command::new(env!("CARGO_BIN_EXE_histconv"))
+        .args(["--from", "zsh", "--to", "bash", "--in-place"])
+        .output()
+        .expect("failed to run histconv");
+    assert!(!output.status.success());
+}
+
+#[test]
+fn in_place_with_stdin_marker_is_rejected() {
+    let output = Command::new(env!("CARGO_BIN_EXE_histconv"))
+        .args(["--from", "zsh", "--to", "bash", "--in-place", "-"])
+        .output()
+        .expect("failed to run histconv");
+    assert!(!output.status.success());
+}

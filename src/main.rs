@@ -9,18 +9,21 @@ struct Args {
     from: String,
     to: String,
     path: Option<String>,
+    in_place: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
     let mut from = None;
     let mut to = None;
     let mut path = None;
+    let mut in_place = false;
 
     let mut iter = env::args().skip(1);
     while let Some(arg) = iter.next() {
         match arg.as_str() {
             "--from" => from = Some(iter.next().ok_or("--from needs a value")?),
             "--to" => to = Some(iter.next().ok_or("--to needs a value")?),
+            "--in-place" => in_place = true,
             "-h" | "--help" => {
                 print_usage();
                 std::process::exit(0);
@@ -39,7 +42,14 @@ fn parse_args() -> Result<Args, String> {
         }
     }
 
-    Ok(Args { from, to, path })
+    if in_place {
+        match path.as_deref() {
+            None | Some("-") => return Err("--in-place needs a FILE, not stdin".to_string()),
+            _ => {}
+        }
+    }
+
+    Ok(Args { from, to, path, in_place })
 }
 
 fn print_usage() {
@@ -48,6 +58,9 @@ fn print_usage() {
     eprintln!("Converts shell history between zsh extended history and bash");
     eprintln!("history formats. Reads FILE if given, otherwise reads stdin.");
     eprintln!("Pass '-' as FILE to read stdin explicitly.");
+    eprintln!();
+    eprintln!("--in-place    write the result back to FILE instead of stdout");
+    eprintln!("              (requires FILE; can't be used with stdin)");
 }
 
 fn read_input(path: &Option<String>) -> io::Result<String> {
@@ -93,7 +106,13 @@ fn main() -> ExitCode {
         _ => unreachable!("validated in parse_args"),
     };
 
-    if io::stdout().write_all(output.as_bytes()).is_err() {
+    if args.in_place {
+        let path = args.path.as_deref().expect("validated in parse_args");
+        if let Err(e) = fs::write(path, output) {
+            eprintln!("error writing {path}: {e}");
+            return ExitCode::FAILURE;
+        }
+    } else if io::stdout().write_all(output.as_bytes()).is_err() {
         return ExitCode::FAILURE;
     }
 
