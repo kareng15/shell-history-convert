@@ -67,6 +67,18 @@ fn parse_zsh_prefix(line: &str) -> Option<(u64, u64, String)> {
     Some((timestamp, duration, command.to_string()))
 }
 
+/// Guesses which of the three formats `input` is in, from its first
+/// non-empty line, so callers don't have to pass `--from` when it's
+/// obvious from the content. An empty or all-blank input is called bash,
+/// since that's the identity conversion for a file with nothing to convert.
+pub fn detect_format(input: &str) -> &'static str {
+    match input.lines().find(|line| !line.is_empty()) {
+        Some(line) if line.starts_with("- cmd: ") => "fish",
+        Some(line) if parse_zsh_prefix(line).is_some() => "zsh",
+        _ => "bash",
+    }
+}
+
 fn trailing_backslashes(s: &str) -> usize {
     s.chars().rev().take_while(|&c| c == '\\').count()
 }
@@ -385,5 +397,36 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].command, "git status");
         assert_eq!(entries[0].timestamp, None);
+    }
+
+    #[test]
+    fn detects_zsh_from_extended_prefix() {
+        assert_eq!(detect_format(": 1693600000:0;git status\n"), "zsh");
+    }
+
+    #[test]
+    fn detects_fish_from_cmd_line() {
+        assert_eq!(detect_format("- cmd: git status\n  when: 1693600000\n"), "fish");
+    }
+
+    #[test]
+    fn detects_bash_for_plain_commands() {
+        assert_eq!(detect_format("git status\nls -la\n"), "bash");
+    }
+
+    #[test]
+    fn detects_bash_for_timestamped_bash_history() {
+        assert_eq!(detect_format("#1693600000\ngit status\n"), "bash");
+    }
+
+    #[test]
+    fn detects_bash_for_empty_input() {
+        assert_eq!(detect_format(""), "bash");
+        assert_eq!(detect_format("\n\n"), "bash");
+    }
+
+    #[test]
+    fn detection_skips_leading_blank_lines() {
+        assert_eq!(detect_format("\n\n- cmd: git status\n  when: 1\n"), "fish");
     }
 }

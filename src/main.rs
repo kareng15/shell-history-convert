@@ -6,7 +6,7 @@ use std::io::{self, Read, Write};
 use std::process::ExitCode;
 
 struct Args {
-    from: String,
+    from: Option<String>,
     to: String,
     path: Option<String>,
     in_place: bool,
@@ -33,10 +33,9 @@ fn parse_args() -> Result<Args, String> {
         }
     }
 
-    let from = from.ok_or("missing --from <zsh|bash>")?;
-    let to = to.ok_or("missing --to <zsh|bash>")?;
+    let to = to.ok_or("missing --to <zsh|bash|fish>")?;
 
-    for fmt in [&from, &to] {
+    for fmt in from.iter().chain([&to]) {
         if fmt != "zsh" && fmt != "bash" && fmt != "fish" {
             return Err(format!("unknown format '{fmt}', expected 'zsh', 'bash', or 'fish'"));
         }
@@ -53,12 +52,13 @@ fn parse_args() -> Result<Args, String> {
 }
 
 fn print_usage() {
-    eprintln!("histconv --from <zsh|bash|fish> --to <zsh|bash|fish> [FILE]");
+    eprintln!("histconv [--from <zsh|bash|fish>] --to <zsh|bash|fish> [FILE]");
     eprintln!();
-    eprintln!("Converts shell history between zsh extended history and bash");
-    eprintln!("history formats. Reads FILE if given, otherwise reads stdin.");
+    eprintln!("Converts shell history between zsh extended history, bash, and");
+    eprintln!("fish history formats. Reads FILE if given, otherwise reads stdin.");
     eprintln!("Pass '-' as FILE to read stdin explicitly.");
     eprintln!();
+    eprintln!("--from        input format; guessed from the input if omitted");
     eprintln!("--in-place    write the result back to FILE instead of stdout");
     eprintln!("              (requires FILE; can't be used with stdin)");
 }
@@ -92,7 +92,9 @@ fn main() -> ExitCode {
         }
     };
 
-    let entries = match args.from.as_str() {
+    let from = args.from.as_deref().unwrap_or_else(|| formats::detect_format(&input));
+
+    let entries = match from {
         "zsh" => formats::parse_zsh(&input),
         "bash" => formats::parse_bash(&input),
         "fish" => formats::parse_fish(&input),

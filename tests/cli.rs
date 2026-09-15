@@ -29,6 +29,28 @@ fn run_on_file(from: &str, to: &str, file: &Path) -> String {
     String::from_utf8(output.stdout).expect("output was not valid utf-8")
 }
 
+fn run_without_from(to: &str, input: &str) -> String {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_histconv"))
+        .args(["--to", to])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn histconv");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .expect("failed to write to stdin");
+    let output = child.wait_with_output().expect("failed to wait on histconv");
+    assert!(
+        output.status.success(),
+        "histconv --to {to} (no --from) failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("output was not valid utf-8")
+}
+
 fn run_on_stdin(from: &str, to: &str, input: &str) -> String {
     let mut child = Command::new(env!("CARGO_BIN_EXE_histconv"))
         .args(["--from", from, "--to", to])
@@ -80,6 +102,24 @@ fn reads_from_stdin_when_no_file_given() {
 fn flattens_multiline_zsh_command_when_converting_to_bash() {
     let got = run_on_stdin("zsh", "bash", ": 1693600000:0;echo foo && \\\necho bar\n");
     assert_eq!(got, "#1693600000\necho foo && ; echo bar\n");
+}
+
+#[test]
+fn detects_zsh_input_without_from_flag() {
+    let got = run_without_from("bash", &fixture("zsh_history.txt"));
+    assert_eq!(got, fixture("bash_history.txt"));
+}
+
+#[test]
+fn detects_fish_input_without_from_flag() {
+    let got = run_without_from("zsh", &fixture("fish_history.txt"));
+    assert_eq!(got, fixture("zsh_history.txt"));
+}
+
+#[test]
+fn detects_bash_input_without_from_flag() {
+    let got = run_without_from("zsh", &fixture("bash_history.txt"));
+    assert_eq!(got, fixture("zsh_history.txt"));
 }
 
 #[test]

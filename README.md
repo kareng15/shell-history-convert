@@ -30,12 +30,18 @@ thousands of lines. `histconv` converts between them.
 ## Usage
 
 ```
-histconv --from <zsh|bash|fish> --to <zsh|bash|fish> [--in-place] [FILE]
+histconv [--from <zsh|bash|fish>] --to <zsh|bash|fish> [--in-place] [FILE]
 ```
 
 If `FILE` is omitted (or is `-`), input is read from stdin. Output goes to
 stdout unless `--in-place` is given, in which case it's written back to
 `FILE`.
+
+`--from` can be left out; the input format is then guessed from its first
+non-empty line (zsh's `: <epoch>:<elapsed>;` prefix, fish's `- cmd: `, or
+otherwise bash). Pass `--from` explicitly if a file mixes extended and
+plain zsh lines and the first one happens to be plain, since that reads as
+bash otherwise.
 
 Convert a zsh history file to bash format:
 
@@ -43,10 +49,11 @@ Convert a zsh history file to bash format:
 histconv --from zsh --to bash ~/.zsh_history > bash_history.txt
 ```
 
-Pipe bash history in and get zsh extended history out:
+Pipe bash history in and get zsh extended history out, without saying
+`--from` since it's obvious from the content:
 
 ```
-cat ~/.bash_history | histconv --from bash --to zsh > zsh_history.txt
+cat ~/.bash_history | histconv --to zsh > zsh_history.txt
 ```
 
 Convert a file without a redirect, overwriting it with the result:
@@ -88,9 +95,9 @@ cargo build --release
 
 Early. zsh's backslash-continuation for commands containing embedded
 newlines is reassembled on read and re-emitted on write, so a multi-line
-command survives a round trip through either format. `--from` is still
-required; there's no format auto-detection yet. See the issues for what's
-planned next.
+command survives a round trip through either format. `--from` is optional
+and the input format is auto-detected when it's left out. See the issues
+for what's planned next.
 
 ## License
 
