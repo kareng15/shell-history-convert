@@ -92,7 +92,24 @@ fn main() -> ExitCode {
         }
     };
 
-    let from = args.from.as_deref().unwrap_or_else(|| formats::detect_format(&input));
+    let from = match args.from.as_deref() {
+        Some(f) => {
+            // "bash" is detect_format's fallback for anything it isn't sure
+            // about (plain command lines look the same in bash and in
+            // non-extended zsh history), so it's not a confident enough
+            // signal to warn on. Only speak up when detection actually
+            // recognized a different format.
+            let detected = formats::detect_format(&input);
+            if detected != "bash" && detected != f {
+                eprintln!(
+                    "warning: input looks like {detected} history, but --from {f} was given; \
+                     proceeding with {f}"
+                );
+            }
+            f
+        }
+        None => formats::detect_format(&input),
+    };
 
     let entries = match from {
         "zsh" => formats::parse_zsh(&input),

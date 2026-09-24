@@ -166,6 +166,55 @@ fn in_place_without_a_file_is_rejected() {
 }
 
 #[test]
+fn warns_when_explicit_from_disagrees_with_a_confident_detection() {
+    let output = Command::new(env!("CARGO_BIN_EXE_histconv"))
+        .args(["--from", "bash", "--to", "bash"])
+        .arg(&fixture_path("zsh_history.txt"))
+        .output()
+        .expect("failed to run histconv");
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("warning") && stderr.contains("zsh") && stderr.contains("bash"),
+        "expected a mismatch warning, got: {stderr}"
+    );
+}
+
+#[test]
+fn no_warning_when_explicit_from_matches_detection() {
+    let output = Command::new(env!("CARGO_BIN_EXE_histconv"))
+        .args(["--from", "zsh", "--to", "bash"])
+        .arg(&fixture_path("zsh_history.txt"))
+        .output()
+        .expect("failed to run histconv");
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty(), "unexpected stderr: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn no_warning_for_plain_zsh_lines_that_detect_as_bash() {
+    // A plain (non-extended) zsh line is indistinguishable from bash, so
+    // detection falls back to "bash" here. That fallback isn't confident
+    // enough to warn about when the caller says --from zsh.
+    let mut child = Command::new(env!("CARGO_BIN_EXE_histconv"))
+        .args(["--from", "zsh", "--to", "bash"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn histconv");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"git status\n")
+        .expect("failed to write to stdin");
+    let output = child.wait_with_output().expect("failed to wait on histconv");
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty(), "unexpected stderr: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
 fn in_place_with_stdin_marker_is_rejected() {
     let output = Command::new(env!("CARGO_BIN_EXE_histconv"))
         .args(["--from", "zsh", "--to", "bash", "--in-place", "-"])

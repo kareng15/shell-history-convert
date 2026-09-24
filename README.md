@@ -43,6 +43,13 @@ otherwise bash). Pass `--from` explicitly if a file mixes extended and
 plain zsh lines and the first one happens to be plain, since that reads as
 bash otherwise.
 
+If `--from` is given explicitly and the input's first line confidently
+looks like a different format (a zsh extended-history prefix or a fish
+`- cmd:` line), `histconv` prints a warning to stderr and then converts
+using the format you asked for anyway. It stays quiet when detection's
+best guess is bash, since that's also what a plain (non-extended) zsh line
+looks like, and warning there would fight the previous paragraph's advice.
+
 Convert a zsh history file to bash format:
 
 ```
