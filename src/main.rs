@@ -8,14 +8,14 @@ use std::process::ExitCode;
 struct Args {
     from: Option<String>,
     to: String,
-    path: Option<String>,
+    paths: Vec<String>,
     in_place: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
     let mut from = None;
     let mut to = None;
-    let mut path = None;
+    let mut paths = Vec::new();
     let mut in_place = false;
 
     let mut iter = env::args().skip(1);
@@ -28,7 +28,7 @@ fn parse_args() -> Result<Args, String> {
                 print_usage();
                 std::process::exit(0);
             }
-            other if path.is_none() => path = Some(other.to_string()),
+            other if other == "-" || !other.starts_with('-') => paths.push(other.to_string()),
             other => return Err(format!("unexpected argument: {other}")),
         }
     }
@@ -41,36 +41,92 @@ fn parse_args() -> Result<Args, String> {
         }
     }
 
-    if in_place {
-        match path.as_deref() {
-            None | Some("-") => return Err("--in-place needs a FILE, not stdin".to_string()),
-            _ => {}
-        }
+    if in_place && (paths.is_empty() || paths.iter().any(|p| p == "-")) {
+        return Err("--in-place needs at least one FILE, not stdin".to_string());
     }
 
-    Ok(Args { from, to, path, in_place })
+    Ok(Args { from, to, paths, in_place })
 }
 
 fn print_usage() {
-    eprintln!("histconv [--from <zsh|bash|fish>] --to <zsh|bash|fish> [FILE]");
+    eprintln!("histconv [--from <zsh|bash|fish>] --to <zsh|bash|fish> [--in-place] [FILE...]");
     eprintln!();
     eprintln!("Converts shell history between zsh extended history, bash, and");
     eprintln!("fish history formats. Reads FILE if given, otherwise reads stdin.");
-    eprintln!("Pass '-' as FILE to read stdin explicitly.");
+    eprintln!("Pass '-' as FILE to read stdin explicitly. Multiple FILEs are");
+    eprintln!("concatenated in the order given before conversion.");
     eprintln!();
     eprintln!("--from        input format; guessed from the input if omitted");
-    eprintln!("--in-place    write the result back to FILE instead of stdout");
-    eprintln!("              (requires FILE; can't be used with stdin)");
+    eprintln!("--in-place    convert each FILE and write the result back to it,");
+    eprintln!("              instead of concatenating them to stdout");
+    eprintln!("              (requires at least one FILE; can't be used with stdin)");
 }
 
-fn read_input(path: &Option<String>) -> io::Result<String> {
-    match path.as_deref() {
-        None | Some("-") => {
+fn read_input(path: &str) -> io::Result<String> {
+    match path {
+        "-" => {
             let mut buf = String::new();
             io::stdin().read_to_string(&mut buf)?;
             Ok(buf)
         }
-        Some(p) => fs::read_to_string(p),
+        p => fs::read_to_string(p),
+    }
+}
+
+/// Concatenates the contents of `paths` in order, reading stdin if `paths`
+/// is empty. A newline is inserted between files whose content doesn't
+/// already end in one, so the last line of one file can't merge with the
+/// first line of the next into something that fails to parse as either.
+fn read_inputs(paths: &[String]) -> io::Result<String> {
+    if paths.is_empty() {
+        return read_input("-");
+    }
+
+    let mut combined = String::new();
+    for path in paths {
+        let content = read_input(path)?;
+        combined.push_str(&content);
+        if !content.ends_with('\n') {
+            combined.push('\n');
+        }
+    }
+    Ok(combined)
+}
+
+/// Picks the input format: whatever `--from` said, unless detection
+/// recognizes the input as confidently something else (see the warning
+/// text below for why "bash" doesn't count as confident).
+fn resolve_from<'a>(explicit: Option<&'a str>, input: &str, label: &str) -> &'a str {
+    match explicit {
+        Some(f) => {
+            let detected = formats::detect_format(input);
+            if detected != "bash" && detected != f {
+                eprintln!(
+                    "warning: {label} looks like {detected} history, but --from {f} was given; \
+                     proceeding with {f}"
+                );
+            }
+            f
+        }
+        None => formats::detect_format(input),
+    }
+}
+
+fn parse_entries(from: &str, input: &str) -> Vec<formats::Entry> {
+    match from {
+        "zsh" => formats::parse_zsh(input),
+        "bash" => formats::parse_bash(input),
+        "fish" => formats::parse_fish(input),
+        _ => unreachable!("validated in parse_args"),
+    }
+}
+
+fn render(to: &str, entries: &[formats::Entry]) -> String {
+    match to {
+        "zsh" => formats::to_zsh(entries),
+        "bash" => formats::to_bash(entries),
+        "fish" => formats::to_fish(entries),
+        _ => unreachable!("validated in parse_args"),
     }
 }
 
@@ -84,7 +140,27 @@ fn main() -> ExitCode {
         }
     };
 
-    let input = match read_input(&args.path) {
+    if args.in_place {
+        for path in &args.paths {
+            let input = match read_input(path) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("error reading {path}: {e}");
+                    return ExitCode::FAILURE;
+                }
+            };
+            let from = resolve_from(args.from.as_deref(), &input, path);
+            let entries = parse_entries(from, &input);
+            let output = render(&args.to, &entries);
+            if let Err(e) = fs::write(path, output) {
+                eprintln!("error writing {path}: {e}");
+                return ExitCode::FAILURE;
+            }
+        }
+        return ExitCode::SUCCESS;
+    }
+
+    let input = match read_inputs(&args.paths) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("error reading input: {e}");
@@ -92,46 +168,11 @@ fn main() -> ExitCode {
         }
     };
 
-    let from = match args.from.as_deref() {
-        Some(f) => {
-            // "bash" is detect_format's fallback for anything it isn't sure
-            // about (plain command lines look the same in bash and in
-            // non-extended zsh history), so it's not a confident enough
-            // signal to warn on. Only speak up when detection actually
-            // recognized a different format.
-            let detected = formats::detect_format(&input);
-            if detected != "bash" && detected != f {
-                eprintln!(
-                    "warning: input looks like {detected} history, but --from {f} was given; \
-                     proceeding with {f}"
-                );
-            }
-            f
-        }
-        None => formats::detect_format(&input),
-    };
+    let from = resolve_from(args.from.as_deref(), &input, "input");
+    let entries = parse_entries(from, &input);
+    let output = render(&args.to, &entries);
 
-    let entries = match from {
-        "zsh" => formats::parse_zsh(&input),
-        "bash" => formats::parse_bash(&input),
-        "fish" => formats::parse_fish(&input),
-        _ => unreachable!("validated in parse_args"),
-    };
-
-    let output = match args.to.as_str() {
-        "zsh" => formats::to_zsh(&entries),
-        "bash" => formats::to_bash(&entries),
-        "fish" => formats::to_fish(&entries),
-        _ => unreachable!("validated in parse_args"),
-    };
-
-    if args.in_place {
-        let path = args.path.as_deref().expect("validated in parse_args");
-        if let Err(e) = fs::write(path, output) {
-            eprintln!("error writing {path}: {e}");
-            return ExitCode::FAILURE;
-        }
-    } else if io::stdout().write_all(output.as_bytes()).is_err() {
+    if io::stdout().write_all(output.as_bytes()).is_err() {
         return ExitCode::FAILURE;
     }
 

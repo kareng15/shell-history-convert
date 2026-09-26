@@ -30,12 +30,25 @@ thousands of lines. `histconv` converts between them.
 ## Usage
 
 ```
-histconv [--from <zsh|bash|fish>] --to <zsh|bash|fish> [--in-place] [FILE]
+histconv [--from <zsh|bash|fish>] --to <zsh|bash|fish> [--in-place] [FILE...]
 ```
 
-If `FILE` is omitted (or is `-`), input is read from stdin. Output goes to
-stdout unless `--in-place` is given, in which case it's written back to
-`FILE`.
+If no `FILE` is given (or one is `-`), that input is read from stdin. Output
+goes to stdout unless `--in-place` is given, in which case it's written back
+to `FILE`.
+
+Passing more than one `FILE` concatenates their history before converting it,
+which is what you want when merging, say, `.zsh_history` from two machines
+into a single `.bash_history`:
+
+```
+histconv --from zsh --to bash machine1_history machine2_history > merged_bash_history
+```
+
+`--in-place` treats multiple files differently: instead of concatenating
+them, it converts each one on its own and writes the result back to that
+same file, so `histconv --to bash --in-place a b` leaves `a` and `b` each
+independently rewritten as bash history, rather than merging them into one.
 
 `--from` can be left out; the input format is then guessed from its first
 non-empty line (zsh's `: <epoch>:<elapsed>;` prefix, fish's `- cmd: `, or

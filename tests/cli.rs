@@ -215,6 +215,51 @@ fn no_warning_for_plain_zsh_lines_that_detect_as_bash() {
 }
 
 #[test]
+fn concatenates_multiple_input_files_before_converting() {
+    let output = Command::new(env!("CARGO_BIN_EXE_histconv"))
+        .args(["--from", "zsh", "--to", "bash"])
+        .arg(fixture_path("zsh_history.txt"))
+        .arg(fixture_path("zsh_history.txt"))
+        .output()
+        .expect("failed to run histconv");
+    assert!(
+        output.status.success(),
+        "histconv on two files failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let got = String::from_utf8(output.stdout).expect("output was not valid utf-8");
+    let single = fixture("bash_history.txt");
+    assert_eq!(got, format!("{single}{single}"));
+}
+
+#[test]
+fn in_place_converts_each_file_independently() {
+    let dir = std::env::temp_dir().join(format!("histconv-test-multi-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("failed to create temp dir");
+    let path_a = dir.join("a.txt");
+    let path_b = dir.join("b.txt");
+    std::fs::write(&path_a, fixture("zsh_history.txt")).expect("failed to seed temp file");
+    std::fs::write(&path_b, fixture("zsh_history.txt")).expect("failed to seed temp file");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_histconv"))
+        .args(["--from", "zsh", "--to", "bash", "--in-place"])
+        .arg(&path_a)
+        .arg(&path_b)
+        .output()
+        .expect("failed to run histconv");
+    assert!(
+        output.status.success(),
+        "histconv --in-place on two files failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert_eq!(std::fs::read_to_string(&path_a).unwrap(), fixture("bash_history.txt"));
+    assert_eq!(std::fs::read_to_string(&path_b).unwrap(), fixture("bash_history.txt"));
+
+    std::fs::remove_dir_all(&dir).expect("failed to clean up temp dir");
+}
+
+#[test]
 fn in_place_with_stdin_marker_is_rejected() {
     let output = Command::new(env!("CARGO_BIN_EXE_histconv"))
         .args(["--from", "zsh", "--to", "bash", "--in-place", "-"])
